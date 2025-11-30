@@ -1,0 +1,53 @@
+{
+  "name": "cosmic-odyssey-dapp",
+  "version": "1.0.0",
+  "description": "Interstellar Governance and Resource Management DApp",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "compile": "hardhat compile",
+    "deploy:local": "hardhat run contracts/deploy.js --network hardhat",
+    "deploy:sepolia": "hardhat run contracts/deploy.js --network sepolia",
+    "deploy:mumbai": "hardhat run contracts/deploy.js --network mumbai",
+    "test": "hardhat test",
+    "node": "hardhat node"
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.88.0",
+    "@react-three/fiber": "^8.15.0",
+    "ethers": "^6.9.0",
+    "lucide-react": "^0.294.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "three": "^0.159.0"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@openzeppelin/contracts": "^5.0.1",
+    "@types/node": "^20.10.0",
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@types/three": "^0.159.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.16",
+    "dotenv": "^16.3.1",
+    "hardhat": "^2.19.0",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.3.2",
+    "vite": "^5.0.5"
+  },
+  "keywords": [
+    "blockchain",
+    "dapp",
+    "ethereum",
+    "nft",
+    "defi",
+    "gaming",
+    "web3"
+  ],
+  "author": "Cosmic Odyssey Team",
+  "license": "MIT"
+}

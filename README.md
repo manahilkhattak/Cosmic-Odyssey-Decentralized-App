@@ -285,6 +285,28 @@ npm run build
 3. Share resources
 4. Coordinate strategies
 
+## 📜 License
+
+MIT License - feel free to use this project for learning and development.
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📞 Support
+
+For questions and support, please open an issue on GitHub.
+
+## 🌟 Acknowledgments
+
+- **Three.js** - 3D graphics library
+- **React Three Fiber** - React renderer for Three.js
+- **Unsplash** - Beautiful space imagery
+- **Lucide Icons** - Icon library
+- **Tailwind CSS** - Utility-first CSS framework
+
+---
+
 **Built with ❤️ for the cosmic community**
 
 *Embark on your interstellar journey today!* 🚀✨

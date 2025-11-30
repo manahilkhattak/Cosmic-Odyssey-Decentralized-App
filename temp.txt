@@ -1,0 +1,386 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Burnable.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+
+/**
+ * @title CosmicNFT
+ * @dev NFT contract for Cosmic Odyssey game assets
+ * Supports: Planets, Spaceships, Aliens with upgradeable attributes
+ */
+contract CosmicNFT is ERC721, ERC721URIStorage, ERC721Burnable, Ownable, ReentrancyGuard {
+    
+    enum NFTType { Planet, Spaceship, Alien }
+    enum Rarity { Common, Rare, Epic, Legendary, Mythic }
+    
+    struct NFTMetadata {
+        NFTType nftType;
+        Rarity rarity;
+        uint256 power;
+        uint256 speed;
+        uint256 defense;
+        uint256 specialAbility;
+        uint256 level;
+        uint256 experience;
+        string ipfsHash;
+    }
+    
+    struct MissionStats {
+        uint256 missionsCompleted;
+        uint256 battlesWon;
+        uint256 planetsExplored;
+        uint256 aliensRecruited;
+    }
+    
+    uint256 private _tokenIdCounter;
+    
+    mapping(uint256 => NFTMetadata) public nftMetadata;
+    mapping(uint256 => MissionStats) public missionStats;
+    mapping(address => uint256[]) public userNFTs;
+    mapping(NFTType => uint256) public mintPrice;
+    mapping(uint256 => bool) public isLocked; // For staking/missions
+    
+    uint256 public constant MAX_LEVEL = 100;
+    uint256 public constant EXP_PER_LEVEL = 1000;
+    
+    event NFTMinted(
+        address indexed owner,
+        uint256 indexed tokenId,
+        NFTType nftType,
+        Rarity rarity
+    );
+    event NFTUpgraded(uint256 indexed tokenId, uint256 newLevel, uint256 newPower);
+    event NFTFused(uint256 indexed token1, uint256 indexed token2, uint256 newTokenId);
+    event ExperienceGained(uint256 indexed tokenId, uint256 expGained);
+    event NFTLocked(uint256 indexed tokenId, bool locked);
+    
+    constructor() ERC721("Cosmic NFT", "CNFT") Ownable(msg.sender) {
+        // Set initial mint prices (in wei)
+        mintPrice[NFTType.Planet] = 0.01 ether;
+        mintPrice[NFTType.Spaceship] = 0.015 ether;
+        mintPrice[NFTType.Alien] = 0.02 ether;
+    }
+    
+    /**
+     * @dev GRAND FUNCTION 1: Advanced NFT Minting with Rarity System
+     */
+    function mintNFT(
+        NFTType _nftType,
+        string memory _ipfsHash
+    ) external payable nonReentrant returns (uint256) {
+        require(msg.value >= mintPrice[_nftType], "Insufficient payment");
+        
+        uint256 tokenId = _tokenIdCounter++;
+        _safeMint(msg.sender, tokenId);
+        _setTokenURI(tokenId, _ipfsHash);
+        
+        // Determine rarity with weighted randomness
+        Rarity rarity = _determineRarity(tokenId);
+        
+        // Generate base stats based on rarity
+        (uint256 power, uint256 speed, uint256 defense, uint256 specialAbility) = 
+            _generateBaseStats(_nftType, rarity);
+        
+        nftMetadata[tokenId] = NFTMetadata({
+            nftType: _nftType,
+            rarity: rarity,
+            power: power,
+            speed: speed,
+            defense: defense,
+            specialAbility: specialAbility,
+            level: 1,
+            experience: 0,
+            ipfsHash: _ipfsHash
+        });
+        
+        userNFTs[msg.sender].push(tokenId);
+        
+        emit NFTMinted(msg.sender, tokenId, _nftType, rarity);
+        
+        return tokenId;
+    }
+    
+    /**
+     * @dev GRAND FUNCTION 2: NFT Upgrade and Leveling System
+     */
+    function upgradeNFT(uint256 _tokenId) external {
+        require(ownerOf(_tokenId) == msg.sender, "Not token owner");
+        require(!isLocked[_tokenId], "NFT is locked");
+        
+        NFTMetadata storage metadata = nftMetadata[_tokenId];
+        require(metadata.level < MAX_LEVEL, "Max level reached");
+        require(metadata.experience >= EXP_PER_LEVEL, "Insufficient experience");
+        
+        // Level up
+        metadata.level += 1;
+        metadata.experience -= EXP_PER_LEVEL;
+        
+        // Stat increases based on rarity
+        uint256 statIncrease = _getStatIncreaseByRarity(metadata.rarity);
+        metadata.power += statIncrease;
+        metadata.speed += statIncrease / 2;
+        metadata.defense += statIncrease / 2;
+        
+        // Special ability boost every 10 levels
+        if (metadata.level % 10 == 0) {
+            metadata.specialAbility += 10;
+        }
+        
+        emit NFTUpgraded(_tokenId, metadata.level, metadata.power);
+    }
+    
+    /**
+     * @dev GRAND FUNCTION 3: NFT Fusion System
+     */
+    function fuseNFTs(
+        uint256 _tokenId1,
+        uint256 _tokenId2,
+        string memory _newIpfsHash
+    ) external nonReentrant returns (uint256) {
+        require(ownerOf(_tokenId1) == msg.sender, "Not owner of token 1");
+        require(ownerOf(_tokenId2) == msg.sender, "Not owner of token 2");
+        require(!isLocked[_tokenId1] && !isLocked[_tokenId2], "NFTs are locked");
+        
+        NFTMetadata memory meta1 = nftMetadata[_tokenId1];
+        NFTMetadata memory meta2 = nftMetadata[_tokenId2];
+        
+        require(meta1.nftType == meta2.nftType, "Must be same type");
+        
+        // Burn the two NFTs
+        _burn(_tokenId1);
+        _burn(_tokenId2);
+        
+        // Create new fused NFT
+        uint256 newTokenId = _tokenIdCounter++;
+        _safeMint(msg.sender, newTokenId);
+        _setTokenURI(newTokenId, _newIpfsHash);
+        
+        // Calculate new stats (average + bonus)
+        Rarity newRarity = _upgradeRarity(meta1.rarity, meta2.rarity);
+        
+        nftMetadata[newTokenId] = NFTMetadata({
+            nftType: meta1.nftType,
+            rarity: newRarity,
+            power: (meta1.power + meta2.power) * 11 / 10, // 10% bonus
+            speed: (meta1.speed + meta2.speed) * 11 / 10,
+            defense: (meta1.defense + meta2.defense) * 11 / 10,
+            specialAbility: (meta1.specialAbility + meta2.specialAbility) * 12 / 10, // 20% bonus
+            level: (meta1.level + meta2.level) / 2,
+            experience: 0,
+            ipfsHash: _newIpfsHash
+        });
+        
+        userNFTs[msg.sender].push(newTokenId);
+        
+        emit NFTFused(_tokenId1, _tokenId2, newTokenId);
+        
+        return newTokenId;
+    }
+    
+    /**
+     * @dev GRAND FUNCTION 4: Experience and Achievement System
+     */
+    function addExperience(
+        uint256 _tokenId,
+        uint256 _expAmount,
+        string memory _achievementType
+    ) external {
+        require(_ownerOf(_tokenId) != address(0), "Token does not exist");
+        require(!isLocked[_tokenId], "NFT is locked");
+        
+        NFTMetadata storage metadata = nftMetadata[_tokenId];
+        metadata.experience += _expAmount;
+        
+        // Update mission stats based on achievement type
+        if (keccak256(bytes(_achievementType)) == keccak256(bytes("mission"))) {
+            missionStats[_tokenId].missionsCompleted += 1;
+        } else if (keccak256(bytes(_achievementType)) == keccak256(bytes("battle"))) {
+            missionStats[_tokenId].battlesWon += 1;
+        } else if (keccak256(bytes(_achievementType)) == keccak256(bytes("exploration"))) {
+            missionStats[_tokenId].planetsExplored += 1;
+        } else if (keccak256(bytes(_achievementType)) == keccak256(bytes("recruit"))) {
+            missionStats[_tokenId].aliensRecruited += 1;
+        }
+        
+        emit ExperienceGained(_tokenId, _expAmount);
+        
+        // Auto-upgrade if enough experience
+        if (metadata.experience >= EXP_PER_LEVEL && metadata.level < MAX_LEVEL) {
+            this.upgradeNFT(_tokenId);
+        }
+    }
+    
+    /**
+     * @dev GRAND FUNCTION 5: Battle and Competition System
+     */
+    function calculateBattlePower(uint256 _tokenId) external view returns (uint256) {
+        require(_ownerOf(_tokenId) != address(0), "Token does not exist");
+        
+        NFTMetadata memory metadata = nftMetadata[_tokenId];
+        MissionStats memory stats = missionStats[_tokenId];
+        
+        // Base combat power
+        uint256 basePower = metadata.power + metadata.defense;
+        
+        // Level multiplier
+        uint256 levelBonus = (metadata.level * basePower) / 100;
+        
+        // Special ability multiplier
+        uint256 abilityBonus = (metadata.specialAbility * basePower) / 200;
+        
+        // Experience from missions
+        uint256 missionBonus = (stats.missionsCompleted + stats.battlesWon) * 10;
+        
+        // Rarity multiplier
+        uint256 rarityMultiplier = _getRarityMultiplier(metadata.rarity);
+        
+        uint256 totalPower = (basePower + levelBonus + abilityBonus + missionBonus) * 
+                            rarityMultiplier / 100;
+        
+        return totalPower;
+    }
+    
+    /**
+     * @dev Lock/Unlock NFT (for staking or missions)
+     */
+    function setNFTLock(uint256 _tokenId, bool _locked) external {
+        require(ownerOf(_tokenId) == msg.sender, "Not token owner");
+        isLocked[_tokenId] = _locked;
+        emit NFTLocked(_tokenId, _locked);
+    }
+    
+    /**
+     * @dev Helper: Determine rarity with weighted randomness
+     */
+    function _determineRarity(uint256 _seed) internal view returns (Rarity) {
+        uint256 random = uint256(keccak256(abi.encodePacked(
+            block.timestamp,
+            block.prevrandao,
+            _seed,
+            msg.sender
+        ))) % 100;
+        
+        if (random < 50) return Rarity.Common;        // 50%
+        if (random < 75) return Rarity.Rare;          // 25%
+        if (random < 90) return Rarity.Epic;          // 15%
+        if (random < 98) return Rarity.Legendary;     // 8%
+        return Rarity.Mythic;                         // 2%
+    }
+    
+    /**
+     * @dev Helper: Generate base stats
+     */
+    function _generateBaseStats(NFTType _nftType, Rarity _rarity) 
+        internal 
+        pure 
+        returns (uint256, uint256, uint256, uint256) 
+    {
+        uint256 baseMultiplier = uint256(_rarity) + 1;
+        
+        if (_nftType == NFTType.Planet) {
+            return (
+                100 * baseMultiplier,  // power
+                50 * baseMultiplier,   // speed
+                150 * baseMultiplier,  // defense
+                75 * baseMultiplier    // special
+            );
+        } else if (_nftType == NFTType.Spaceship) {
+            return (
+                125 * baseMultiplier,
+                150 * baseMultiplier,
+                75 * baseMultiplier,
+                100 * baseMultiplier
+            );
+        } else { // Alien
+            return (
+                150 * baseMultiplier,
+                100 * baseMultiplier,
+                100 * baseMultiplier,
+                125 * baseMultiplier
+            );
+        }
+    }
+    
+    /**
+     * @dev Helper: Get stat increase by rarity
+     */
+    function _getStatIncreaseByRarity(Rarity _rarity) internal pure returns (uint256) {
+        if (_rarity == Rarity.Common) return 5;
+        if (_rarity == Rarity.Rare) return 10;
+        if (_rarity == Rarity.Epic) return 15;
+        if (_rarity == Rarity.Legendary) return 25;
+        return 40; // Mythic
+    }
+    
+    /**
+     * @dev Helper: Upgrade rarity through fusion
+     */
+    function _upgradeRarity(Rarity _rarity1, Rarity _rarity2) internal pure returns (Rarity) {
+        uint256 avgRarity = (uint256(_rarity1) + uint256(_rarity2)) / 2;
+        if (avgRarity < 4) {
+            avgRarity += 1; // Upgrade one tier
+        }
+        if (avgRarity > 4) avgRarity = 4; // Cap at Mythic
+        return Rarity(avgRarity);
+    }
+    
+    /**
+     * @dev Helper: Get rarity multiplier for battle power
+     */
+    function _getRarityMultiplier(Rarity _rarity) internal pure returns (uint256) {
+        if (_rarity == Rarity.Common) return 100;
+        if (_rarity == Rarity.Rare) return 125;
+        if (_rarity == Rarity.Epic) return 150;
+        if (_rarity == Rarity.Legendary) return 200;
+        return 300; // Mythic
+    }
+    
+    /**
+     * @dev Get all NFTs owned by an address
+     */
+    function getNFTsByOwner(address _owner) external view returns (uint256[] memory) {
+        return userNFTs[_owner];
+    }
+    
+    /**
+     * @dev Update mint prices
+     */
+    function updateMintPrice(NFTType _nftType, uint256 _newPrice) external onlyOwner {
+        mintPrice[_nftType] = _newPrice;
+    }
+    
+    /**
+     * @dev Withdraw contract balance
+     */
+    function withdraw() external onlyOwner {
+        payable(owner()).transfer(address(this).balance);
+    }
+    
+    /**
+     * @dev Override tokenURI to support ERC721URIStorage
+     */
+    function tokenURI(uint256 tokenId)
+        public
+        view
+        override(ERC721, ERC721URIStorage)
+        returns (string memory)
+    {
+        return super.tokenURI(tokenId);
+    }
+    
+    /**
+     * @dev Override supportsInterface
+     */
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        override(ERC721, ERC721URIStorage)
+        returns (bool)
+    {
+        return super.supportsInterface(interfaceId);
+    }
+}
